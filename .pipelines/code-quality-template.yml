@@ -1,0 +1,54 @@
+# Pipeline template to run linting, unit tests with code coverage, and publish the results.
+parameters:
+  - name: TEST_PATH
+    type: string
+  - name: ML_PATH
+    type: string
+
+steps:
+#- script: |
+#   flake8 --output-file=lint-testresults.xml --format junit-xml
+#  displayName: 'Run lint tests'
+
+- task: DotNetCoreInstaller@2
+  displayName: 'Install dotnet core'
+  inputs:
+    packageType: sdk
+    version: 3.1.402
+    installationPath: $(Agent.ToolsDirectory)/dotnet
+
+- task: PipAuthenticate@1
+  displayName: Authenticate with artifact feed
+  inputs:
+    artifactFeeds: Ectocloud/ml-python-libraries
+    onlyAddExtraIndex: True
+
+- script: |
+    set -e # fail on error
+    conda env create -n custom_env -f ectomlcore/${{ parameters.ML_PATH }}/conda_dependencies.yml
+    source activate custom_env
+    pip install pytest pytest-cov
+    python -m pytest ${{ parameters.TEST_PATH }} --cov=ectomlcore --cov-report=html --cov-report=xml --junitxml=unit-testresults.xml
+  condition: succeededOrFailed()
+  displayName: 'Run unit tests'
+
+- task: PublishTestResults@2
+  displayName: 'Publish test results'
+  condition: succeededOrFailed()
+  inputs:
+    testResultsFiles: '*-testresults.xml'
+    testRunTitle: 'Linting & Unit tests'
+    failTaskOnFailedTests: true
+  env:
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: 1
+
+- task: PublishCodeCoverageResults@1
+  displayName: 'Publish coverage report'
+  condition: succeededOrFailed()
+  inputs:
+    codeCoverageTool: Cobertura
+    summaryFileLocation: 'coverage.xml'
+    reportDirectory: 'htmlcov'
+    failIfCoverageEmpty: true
+  env:
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: 1
